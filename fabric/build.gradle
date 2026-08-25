@@ -1,0 +1,71 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${fabric_loom_version}"
+    id 'maven-publish'
+}
+
+version = rootProject.version
+group = rootProject.group
+
+base {
+    archivesName = rootProject.archives_base_name
+}
+
+sourceSets {
+    main {
+        java.srcDir rootProject.file('common/src/main/java')
+        resources.srcDir rootProject.file('common/src/main/resources')
+    }
+    test {
+        java.srcDir rootProject.file('common/src/test/java')
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+}
+
+loom {
+    mods {
+        camelchest {
+            sourceSet sourceSets.main
+        }
+    }
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+}
+
+java {
+    withSourcesJar()
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+processResources {
+    inputs.property 'version', project.version
+
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    archiveVersion = "${project.version}+mc26.2-fabric"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}

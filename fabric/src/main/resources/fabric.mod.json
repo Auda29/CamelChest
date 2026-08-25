@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "camelchest",
+  "version": "${version}",
+  "name": "Camel Chest",
+  "description": "Lets camels carry a chest and 15 inventory slots like donkeys.",
+  "authors": [
+    "Auda29"
+  ],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.wecke.camelchest.fabric.CamelChestFabric"
+    ]
+  },
+  "mixins": [
+    "camelchest.mixins.json",
+    "camelchest.fabric.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25"
+  }
+}

@@ -1,0 +1,32 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="MIT"
+
+[[mixins]]
+config="camelchest.mixins.json"
+
+[[mixins]]
+config="camelchest.neoforge.mixins.json"
+
+[[mods]]
+modId="camelchest"
+version="${version}"
+displayName="Camel Chest"
+authors="Auda29"
+description='''
+Lets camels carry a chest and 15 inventory slots like donkeys.
+'''
+
+[[dependencies.camelchest]]
+modId="neoforge"
+type="required"
+versionRange="[${neoforge_version},)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.camelchest]]
+modId="minecraft"
+type="required"
+versionRange="[${minecraft_version}]"
+ordering="NONE"
+side="BOTH"

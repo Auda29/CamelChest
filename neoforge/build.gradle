@@ -1,0 +1,89 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version "${moddev_version}"
+    id 'maven-publish'
+}
+
+version = rootProject.version
+group = rootProject.group
+
+base {
+    archivesName = rootProject.archives_base_name
+}
+
+sourceSets {
+    main {
+        java.srcDir rootProject.file('common/src/main/java')
+        resources.srcDir rootProject.file('common/src/main/resources')
+    }
+    test {
+        java.srcDir rootProject.file('common/src/test/java')
+    }
+}
+
+java {
+    withSourcesJar()
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+}
+
+neoForge {
+    version = rootProject.neoforge_version
+
+    runs {
+        client {
+            client()
+            gameDirectory = file('run')
+        }
+        server {
+            server()
+            gameDirectory = file('run-server')
+            programArgument '--nogui'
+        }
+    }
+
+    mods {
+        camelchest {
+            sourceSet sourceSets.main
+        }
+    }
+
+    unitTest {
+        enable()
+        testedMod = mods.camelchest
+    }
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', rootProject.minecraft_version
+    inputs.property 'neoforge_version', rootProject.neoforge_version
+
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand(
+            version: project.version,
+            minecraft_version: rootProject.minecraft_version,
+            neoforge_version: rootProject.neoforge_version
+        )
+    }
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    archiveVersion = "${project.version}+mc26.2-neoforge"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}

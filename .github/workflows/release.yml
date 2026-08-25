@@ -1,0 +1,178 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish GitHub release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the released source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve release metadata
+        id: release_metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          project_version="$(awk -F= '$1 == "mod_version" { print $2 }' gradle.properties | tr -d '\r')"
+          archive_name="$(awk -F= '$1 == "archives_base_name" { print $2 }' gradle.properties | tr -d '\r')"
+          minecraft_version="$(awk -F= '$1 == "minecraft_version" { print $2 }' gradle.properties | tr -d '\r')"
+
+          if [[ -z "${project_version}" || -z "${archive_name}" || -z "${minecraft_version}" ]]; then
+            echo "::error file=gradle.properties::mod_version, archives_base_name and minecraft_version must be set."
+            exit 1
+          fi
+
+          expected_tag="v${project_version}"
+          should_release="true"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+            echo "::error file=gradle.properties::Tag ${GITHUB_REF_NAME} does not match mod_version ${project_version}. Expected ${expected_tag}."
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::The released commit is not contained in the main branch."
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "branch" ]] && git show-ref --verify --quiet "refs/tags/${expected_tag}"; then
+            should_release="false"
+            echo "Release tag ${expected_tag} already exists. No release is needed for this main branch push."
+          fi
+
+          {
+            echo "version=${project_version}"
+            echo "minecraft_version=${minecraft_version}"
+            echo "fabric_jar_path=fabric/build/libs/${archive_name}-${project_version}+mc26.2-fabric.jar"
+            echo "neoforge_jar_path=neoforge/build/libs/${archive_name}-${project_version}+mc26.2-neoforge.jar"
+            echo "tag=${expected_tag}"
+            echo "should_release=${should_release}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Java 25
+        if: steps.release_metadata.outputs.should_release == 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        if: steps.release_metadata.outputs.should_release == 'true'
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Build and test Fabric and NeoForge
+        if: steps.release_metadata.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon clean build
+
+      - name: Prepare release assets
+        if: steps.release_metadata.outputs.should_release == 'true'
+        id: release_assets
+        shell: bash
+        env:
+          FABRIC_JAR_PATH: ${{ steps.release_metadata.outputs.fabric_jar_path }}
+          NEOFORGE_JAR_PATH: ${{ steps.release_metadata.outputs.neoforge_jar_path }}
+        run: |
+          set -euo pipefail
+
+          for jar_path in "${FABRIC_JAR_PATH}" "${NEOFORGE_JAR_PATH}"; do
+            if [[ ! -s "${jar_path}" ]]; then
+              echo "::error::Expected release artifact was not created: ${jar_path}"
+              find fabric/build/libs neoforge/build/libs -maxdepth 1 -type f -print || true
+              exit 1
+            fi
+
+            checksum="$(sha256sum "${jar_path}" | awk '{ print $1 }')"
+            printf '%s  %s\n' "${checksum}" "$(basename "${jar_path}")" > "${jar_path}.sha256"
+          done
+
+          {
+            echo "fabric_checksum_path=${FABRIC_JAR_PATH}.sha256"
+            echo "neoforge_checksum_path=${NEOFORGE_JAR_PATH}.sha256"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create the release tag
+        if: github.ref == 'refs/heads/main' && steps.release_metadata.outputs.should_release == 'true'
+        shell: bash
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          tag_object_sha="$(
+            gh api --method POST "repos/${GH_REPO}/git/tags" \
+              -f tag="${RELEASE_TAG}" \
+              -f message="Release ${RELEASE_TAG}" \
+              -f object="${GITHUB_SHA}" \
+              -f type="commit" \
+              --jq '.sha'
+          )"
+
+          gh api --method POST "repos/${GH_REPO}/git/refs" \
+            -f ref="refs/tags/${RELEASE_TAG}" \
+            -f sha="${tag_object_sha}" >/dev/null
+
+      - name: Create or update the GitHub release
+        if: steps.release_metadata.outputs.should_release == 'true'
+        shell: bash
+        env:
+          FABRIC_CHECKSUM_PATH: ${{ steps.release_assets.outputs.fabric_checksum_path }}
+          FABRIC_JAR_PATH: ${{ steps.release_metadata.outputs.fabric_jar_path }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          NEOFORGE_CHECKSUM_PATH: ${{ steps.release_assets.outputs.neoforge_checksum_path }}
+          NEOFORGE_JAR_PATH: ${{ steps.release_metadata.outputs.neoforge_jar_path }}
+          PROJECT_VERSION: ${{ steps.release_metadata.outputs.version }}
+          RELEASE_TAG: ${{ steps.release_metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" \
+              "${FABRIC_JAR_PATH}" "${FABRIC_CHECKSUM_PATH}" \
+              "${NEOFORGE_JAR_PATH}" "${NEOFORGE_CHECKSUM_PATH}" \
+              --clobber
+            exit 0
+          fi
+
+          release_args=(
+            "${RELEASE_TAG}"
+            "${FABRIC_JAR_PATH}"
+            "${FABRIC_CHECKSUM_PATH}"
+            "${NEOFORGE_JAR_PATH}"
+            "${NEOFORGE_CHECKSUM_PATH}"
+            --verify-tag
+            --generate-notes
+            --title "Camel Chest ${PROJECT_VERSION}"
+          )
+
+          if [[ "${PROJECT_VERSION}" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          gh release create "${release_args[@]}"

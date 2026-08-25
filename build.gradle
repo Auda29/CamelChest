@@ -1,0 +1,66 @@
+plugins {
+    id 'base'
+    id 'com.modrinth.minotaur' version '2.9.0'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+tasks.named('build') {
+    dependsOn ':fabric:build', ':neoforge:build'
+}
+
+tasks.register('runFabricClient') {
+    group = 'fabric'
+    description = 'Starts the Fabric development client.'
+    dependsOn ':fabric:runClient'
+}
+
+tasks.register('runNeoForgeClient') {
+    group = 'neoforge'
+    description = 'Starts the NeoForge development client.'
+    dependsOn ':neoforge:runClient'
+}
+
+def modrinthProperty = { String name, String fallback ->
+    def value = findProperty(name)
+    return value == null ? fallback : value.toString()
+}
+def modrinthUploadPath = findProperty('modrinth_upload_file')
+def modrinthChangelogPath = findProperty('modrinth_changelog_file')
+def modrinthGameVersions = modrinthProperty('modrinth_game_versions', project.minecraft_version)
+    .split(',')
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
+def modrinthLoaders = modrinthProperty('modrinth_loaders', 'fabric')
+    .split(',')
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
+
+modrinth {
+    token = System.getenv('MODRINTH_TOKEN')
+    projectId = modrinthProperty('modrinth_project_id', '')
+    versionNumber = modrinthProperty('modrinth_version_number', project.version.toString())
+    versionName = modrinthProperty('modrinth_version_name', "Camel Chest ${project.version}")
+    versionType = modrinthProperty('modrinth_version_type', 'release')
+    changelog = modrinthChangelogPath
+        ? file(modrinthChangelogPath).getText('UTF-8')
+        : 'No changelog was specified.'
+    uploadFile = modrinthUploadPath
+        ? file(modrinthUploadPath)
+        : file("fabric/build/libs/${project.archives_base_name}-${project.version}+mc26.2-fabric.jar")
+    gameVersions = modrinthGameVersions
+    loaders = modrinthLoaders
+    autoAddDependsOn = false
+    debugMode = Boolean.parseBoolean(modrinthProperty('modrinth_debug', 'false'))
+}
+
+afterEvaluate {
+    tasks.named('modrinth') {
+        if (modrinthUploadPath) {
+            setDependsOn([])
+        } else {
+            dependsOn ':fabric:build'
+        }
+    }
+}
