@@ -170,7 +170,7 @@ jobs:
                 changelog: $changelog,
                 changelogType: "markdown",
                 displayName: $display_name,
-                gameVersionNames: [$minecraft_version, $loader],
+                gameVersionNames: [$minecraft_version, $loader, "Client", "Server"],
                 releaseType: $release_type
               }' > "${output_path}"
           }
