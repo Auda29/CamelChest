@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.wecke.camelchest.mixin",
+  "compatibilityLevel": "JAVA_${java_version}",
+  "mixins": [
+    "CamelMixin"
+  ],
+  "client": [
+    "client.CamelRendererMixin",
+    "client.LivingEntityRendererAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

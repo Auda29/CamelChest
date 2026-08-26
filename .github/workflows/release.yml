@@ -34,10 +34,9 @@ jobs:
 
           project_version="$(awk -F= '$1 == "mod_version" { print $2 }' gradle.properties | tr -d '\r')"
           archive_name="$(awk -F= '$1 == "archives_base_name" { print $2 }' gradle.properties | tr -d '\r')"
-          minecraft_version="$(awk -F= '$1 == "minecraft_version" { print $2 }' gradle.properties | tr -d '\r')"
 
-          if [[ -z "${project_version}" || -z "${archive_name}" || -z "${minecraft_version}" ]]; then
-            echo "::error file=gradle.properties::mod_version, archives_base_name and minecraft_version must be set."
+          if [[ -z "${project_version}" || -z "${archive_name}" ]]; then
+            echo "::error file=gradle.properties::mod_version and archives_base_name must be set."
             exit 1
           fi
 
@@ -61,12 +60,17 @@ jobs:
 
           {
             echo "version=${project_version}"
-            echo "minecraft_version=${minecraft_version}"
-            echo "fabric_jar_path=fabric/build/libs/${archive_name}-${project_version}+mc26.2-fabric.jar"
-            echo "neoforge_jar_path=neoforge/build/libs/${archive_name}-${project_version}+mc26.2-neoforge.jar"
+            echo "archive_name=${archive_name}"
             echo "tag=${expected_tag}"
             echo "should_release=${should_release}"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Java 21
+        if: steps.release_metadata.outputs.should_release == 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
 
       - name: Set up Java 25
         if: steps.release_metadata.outputs.should_release == 'true'
@@ -81,38 +85,59 @@ jobs:
         with:
           cache-provider: basic
 
-      - name: Build and test Fabric and NeoForge
+      - name: Build and test all supported targets
         if: steps.release_metadata.outputs.should_release == 'true'
         shell: bash
         run: |
+          set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon clean build
+          ./gradlew --no-daemon -p versions/1.21.11 clean build
+          ./gradlew --no-daemon -p versions/1.21.1 clean build
 
       - name: Prepare release assets
         if: steps.release_metadata.outputs.should_release == 'true'
-        id: release_assets
         shell: bash
         env:
-          FABRIC_JAR_PATH: ${{ steps.release_metadata.outputs.fabric_jar_path }}
-          NEOFORGE_JAR_PATH: ${{ steps.release_metadata.outputs.neoforge_jar_path }}
+          ARCHIVE_NAME: ${{ steps.release_metadata.outputs.archive_name }}
+          PROJECT_VERSION: ${{ steps.release_metadata.outputs.version }}
         run: |
           set -euo pipefail
+          mkdir -p dist
 
-          for jar_path in "${FABRIC_JAR_PATH}" "${NEOFORGE_JAR_PATH}"; do
-            if [[ ! -s "${jar_path}" ]]; then
-              echo "::error::Expected release artifact was not created: ${jar_path}"
-              find fabric/build/libs neoforge/build/libs -maxdepth 1 -type f -print || true
-              exit 1
+          artifact_path() {
+            local minecraft_version="$1"
+            local loader="$2"
+            local jar_name="${ARCHIVE_NAME}-${PROJECT_VERSION}+mc${minecraft_version}-${loader}.jar"
+
+            if [[ "${minecraft_version}" == "26.2" ]]; then
+              printf '%s\n' "${loader}/build/libs/${jar_name}"
+            else
+              printf '%s\n' "versions/${minecraft_version}/${loader}/build/libs/${jar_name}"
             fi
+          }
 
-            checksum="$(sha256sum "${jar_path}" | awk '{ print $1 }')"
-            printf '%s  %s\n' "${checksum}" "$(basename "${jar_path}")" > "${jar_path}.sha256"
+          for minecraft_version in 26.2 1.21.11 1.21.1; do
+            for loader in fabric neoforge; do
+              jar_path="$(artifact_path "${minecraft_version}" "${loader}")"
+              if [[ ! -s "${jar_path}" ]]; then
+                echo "::error::Expected release artifact was not created: ${jar_path}"
+                exit 1
+              fi
+
+              cp "${jar_path}" dist/
+              jar_name="$(basename "${jar_path}")"
+              checksum="$(sha256sum "dist/${jar_name}" | awk '{ print $1 }')"
+              printf '%s  %s\n' "${checksum}" "${jar_name}" > "dist/${jar_name}.sha256"
+            done
           done
 
-          {
-            echo "fabric_checksum_path=${FABRIC_JAR_PATH}.sha256"
-            echo "neoforge_checksum_path=${NEOFORGE_JAR_PATH}.sha256"
-          } >> "${GITHUB_OUTPUT}"
+          jar_count="$(find dist -maxdepth 1 -type f -name '*.jar' | wc -l | tr -d ' ')"
+          checksum_count="$(find dist -maxdepth 1 -type f -name '*.jar.sha256' | wc -l | tr -d ' ')"
+          if [[ "${jar_count}" != "6" || "${checksum_count}" != "6" ]]; then
+            echo "::error::Expected six JARs and six checksum files, found ${jar_count} and ${checksum_count}."
+            exit 1
+          fi
 
       - name: Create the release tag
         if: github.ref == 'refs/heads/main' && steps.release_metadata.outputs.should_release == 'true'
@@ -141,31 +166,21 @@ jobs:
         if: steps.release_metadata.outputs.should_release == 'true'
         shell: bash
         env:
-          FABRIC_CHECKSUM_PATH: ${{ steps.release_assets.outputs.fabric_checksum_path }}
-          FABRIC_JAR_PATH: ${{ steps.release_metadata.outputs.fabric_jar_path }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          NEOFORGE_CHECKSUM_PATH: ${{ steps.release_assets.outputs.neoforge_checksum_path }}
-          NEOFORGE_JAR_PATH: ${{ steps.release_metadata.outputs.neoforge_jar_path }}
           PROJECT_VERSION: ${{ steps.release_metadata.outputs.version }}
           RELEASE_TAG: ${{ steps.release_metadata.outputs.tag }}
         run: |
           set -euo pipefail
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" \
-              "${FABRIC_JAR_PATH}" "${FABRIC_CHECKSUM_PATH}" \
-              "${NEOFORGE_JAR_PATH}" "${NEOFORGE_CHECKSUM_PATH}" \
-              --clobber
+            gh release upload "${RELEASE_TAG}" dist/* --clobber
             exit 0
           fi
 
           release_args=(
             "${RELEASE_TAG}"
-            "${FABRIC_JAR_PATH}"
-            "${FABRIC_CHECKSUM_PATH}"
-            "${NEOFORGE_JAR_PATH}"
-            "${NEOFORGE_CHECKSUM_PATH}"
+            dist/*
             --verify-tag
             --generate-notes
             --title "Camel Chest ${PROJECT_VERSION}"

@@ -1,0 +1,88 @@
+plugins {
+    id 'net.fabricmc.fabric-loom-remap' version "${fabric_loom_version}"
+    id 'maven-publish'
+}
+
+version = rootProject.version
+group = rootProject.group
+
+base {
+    archivesName = rootProject.archives_base_name
+}
+
+sourceSets {
+    main {
+        java.srcDir rootProject.file('../../common/src/main/java')
+        java.srcDir rootProject.file('../../fabric/src/main/java')
+        java.srcDir rootProject.file('common/src/main/java')
+        java.exclude { element ->
+            element.file.canonicalFile == rootProject.file('../../common/src/main/java/dev/wecke/camelchest/client/CamelChestLayer.java').canonicalFile
+        }
+        resources.srcDir rootProject.file('../../common/src/main/resources')
+        resources.srcDir rootProject.file('../../fabric/src/main/resources')
+    }
+    test {
+        java.srcDir rootProject.file('../../common/src/test/java')
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+}
+
+loom {
+    mods {
+        camelchest {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
+
+java {
+    withSourcesJar()
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', rootProject.minecraft_version
+    inputs.property 'fabric_loader_version', rootProject.fabric_loader_version
+
+    filesMatching('fabric.mod.json') {
+        expand(
+            version: project.version,
+            minecraft_version: rootProject.minecraft_version,
+            fabric_loader_version: rootProject.fabric_loader_version,
+            java_version: 21
+        )
+    }
+
+    filesMatching('*.mixins.json') {
+        expand(java_version: 21)
+    }
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    archiveVersion = "${project.version}+mc${rootProject.minecraft_version}-fabric"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}

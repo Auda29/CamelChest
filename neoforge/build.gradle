@@ -7,6 +7,9 @@ plugins {
 version = rootProject.version
 group = rootProject.group
 
+def minecraftVersion = rootProject.minecraft_version.toString()
+def targetJavaVersion = minecraftVersion.startsWith('26.') ? 25 : 21
+
 base {
     archivesName = rootProject.archives_base_name
 }
@@ -23,7 +26,11 @@ sourceSets {
 
 java {
     withSourcesJar()
-    toolchain.languageVersion = JavaLanguageVersion.of(25)
+    toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = targetJavaVersion
 }
 
 neoForge {
@@ -62,6 +69,7 @@ processResources {
     inputs.property 'version', project.version
     inputs.property 'minecraft_version', rootProject.minecraft_version
     inputs.property 'neoforge_version', rootProject.neoforge_version
+    inputs.property 'java_version', targetJavaVersion
 
     filesMatching('META-INF/neoforge.mods.toml') {
         expand(
@@ -70,6 +78,10 @@ processResources {
             neoforge_version: rootProject.neoforge_version
         )
     }
+
+    filesMatching('*.mixins.json') {
+        expand(java_version: targetJavaVersion)
+    }
 }
 
 tasks.named('test', Test) {
@@ -77,7 +89,7 @@ tasks.named('test', Test) {
 }
 
 tasks.withType(AbstractArchiveTask).configureEach {
-    archiveVersion = "${project.version}+mc26.2-neoforge"
+    archiveVersion = "${project.version}+mc${minecraftVersion}-neoforge"
 }
 
 publishing {

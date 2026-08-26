@@ -6,6 +6,9 @@ plugins {
 version = rootProject.version
 group = rootProject.group
 
+def minecraftVersion = rootProject.minecraft_version.toString()
+def targetJavaVersion = minecraftVersion.startsWith('26.') ? 25 : 21
+
 base {
     archivesName = rootProject.archives_base_name
 }
@@ -36,21 +39,31 @@ loom {
     }
 }
 tasks.withType(JavaCompile).configureEach {
-    options.release = 25
+    options.release = targetJavaVersion
 }
 
 java {
     withSourcesJar()
-    toolchain.languageVersion = JavaLanguageVersion.of(25)
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
 }
 
 processResources {
     inputs.property 'version', project.version
+    inputs.property 'minecraft_version', minecraftVersion
+    inputs.property 'fabric_loader_version', rootProject.fabric_loader_version
+    inputs.property 'java_version', targetJavaVersion
 
     filesMatching('fabric.mod.json') {
-        expand 'version': project.version
+        expand(
+            version: project.version,
+            minecraft_version: minecraftVersion,
+            fabric_loader_version: rootProject.fabric_loader_version,
+            java_version: targetJavaVersion
+        )
+    }
+
+    filesMatching('*.mixins.json') {
+        expand(java_version: targetJavaVersion)
     }
 }
 
@@ -59,7 +72,7 @@ tasks.named('test', Test) {
 }
 
 tasks.withType(AbstractArchiveTask).configureEach {
-    archiveVersion = "${project.version}+mc26.2-fabric"
+    archiveVersion = "${project.version}+mc${minecraftVersion}-fabric"
 }
 
 publishing {

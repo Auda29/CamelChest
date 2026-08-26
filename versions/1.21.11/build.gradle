@@ -1,0 +1,10 @@
+plugins {
+    id 'base'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+tasks.named('build') {
+    dependsOn ':fabric:build', ':neoforge:build'
+}
