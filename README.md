@@ -1,5 +1,7 @@
 # Camel Chest
 
+[Website (DE)](https://auda29.github.io/CamelChest/) · [Website (EN)](https://auda29.github.io/CamelChest/en.html)
+
 Camel Chest is a Minecraft mod for Fabric and NeoForge. It lets adult camels carry a chest and 15 inventory slots, matching the storage behavior of donkeys and mules.
 
 ## Use
